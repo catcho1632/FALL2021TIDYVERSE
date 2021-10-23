@@ -1,93 +1,76 @@
 ---
-title: 'tidyverse: using forcats to improve your ggplots'
-author: "catlin"
-date: "2/10/2021"
+title: 'tidyverse: using purrr to  eliminate loops'
+author: "Catherine Cho"
+date: "10/22/2021"
 output: html_document
 ---
 
-Note that although forcats is part of the "tidyverse", it is not automatically loaded when you run `library(tidyverse)`
+Purrr functions are useful for manipulating atomic vectors, heterogenous lists (list made up of chr,dbl,int,etc), and dataframes. These functions are more efficient than running loops to do the same operations. Purrr functions are similar to those in dplyr but while dplyr focuses on dataframes, Purrr specializes in nested dataframes and vectors. These are useful skills to have especially if you are working with heavily nested data like JSON. 
+
+"Purrr is a new package that fills in the missing pieces in R’s functional programming tools: it’s designed to make your pure functions purrr. Like many of my recent packages, it works with magrittr to allow you to express complex operations by combining simple pieces in a standard way." (Hadley Wickham)
+
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
 library(tidyverse)
-library(forcats)
+library(purrr)
 ```
 
-# Handy forcats functions for ggplot2
+# Map() will run a specified function on each object in a dataframe and return the results in a list. 
+## Map() is the very basic map function in Purrr but there are variants such as map_lgl(), map_int(), map_dbl(), and map_chr() which will return the specified atomic vector. 
 
-## Comparing followers of world religions
-
-Source: https://en.wikipedia.org/wiki/List_of_religious_populations
-
-I was looking for a simple dataset with count data for many items to demonstrate some basic forcats functions that are useful when creating plots.
-
+I found a dataset that contains multiple vector type values in order to demonstrate the benefits of using map() functions. The data was sourced from kaggle where this data was scraped from AUCTION EXPORT.com which contains information about clean and used vehicles for sale in the US.  
 ```{r, warning=FALSE}
-religions = read_csv("https://raw.githubusercontent.com/acatlin/data/master/religions.csv", 
-                  col_names = FALSE) %>% 
-    rename(religion = X1, followers = X2) %>% 
-    mutate(millions_of_followers = followers/1000000.0) %>% 
-  select(religion, millions_of_followers)
 
-religions
+library(readr)
+urlfile<-"https://raw.githubusercontent.com/catcho1632/DATA-607/main/USA_cars_datasets.csv"
+cars<-read_csv(url(urlfile))
 ```
 
-## 1A: basic ggplot
+### Here are some very basic map functions to gather some parameters of this dataset in one line of code. 
 
-Q: What are the most followed religions?
-A: Use ggplot to compare religious populations
-
-You can also embed plots, for example:
-
+#### 1a. map_chr will return the type of each column in car
 ```{r}
-religions %>% 
-  ggplot(aes(x = religion, y = millions_of_followers)) + 
-    geom_col(fill = "lightblue") + 
-    labs(x = "religion", y = "millions of followers", 
-           caption = "https://en.wikipedia.org/wiki/List_of_religious_populations") 
+cars%>%map_chr(typeof)
 ```
- 
-## 1B: How do I flip coordinates?
-
+#### 1b. map_dbl will return a list of double type vector with the mean per column. NA is returned for non dbl types.
 ```{r}
-religions %>% 
-  ggplot(aes(x = religion, y = millions_of_followers)) + 
-    geom_col(fill = "lightblue") + 
-    labs(x = "religion", y = "millions of followers", 
-           caption = "https://en.wikipedia.org/wiki/List_of_religious_populations") + coord_flip()
+cars%>%map_dbl(mean)
 ```
-
-## 2A: How do I change sort order?
-Revised by: Andy Catlin
-
-Q: How do we change the chart to show the most followed religions first?
-A: Use forcats::fct_reorder()
-
+#### 1c. map_lgl will return a logical argument (true/false). It can even return the results as a string. 
 ```{r}
-library(forcats) 
-
-ggplot(religions, aes(x = fct_reorder(religion, millions_of_followers), 
-                      y = millions_of_followers)) + 
-  geom_col(fill = "lightblue") + 
-  labs(x = "religion", y = "millions of followers", 
-      caption = "https://en.wikipedia.org/wiki/List_of_religious_populations") + 
-  coord_flip()
+cars%>%map_lgl(is.numeric)
+cars%>%map_chr(is.numeric)
 ```
 
-## 2B: How do I combine less frequently used categories?
+### The following section will use the map() function to run a function operation in the nested objects of a dataframe with ease. 
 
-Q: How do we combine the less-followed religions into a single group?
-A: Use forcats::fct_other()
-
+The dataset "cars" is subsetted to contain state, brand, mileage, and price. The price, mileage, and brand is nested into each state. Purrr is useful when dealing with nested data. (other examples of nested data is JSON data)
 ```{r}
-top5 = unlist(select(head(arrange(religions, desc(millions_of_followers)), 5), religion))
+cars_spec<-subset(cars,select=c(11,3,7,2))
+cars_state<-cars_spec%>%nest(data=!state)
+str(cars_state)
 
-religions %>% 
-  mutate(religion = fct_other(religion, keep = top5, other_level = "Other religions")) %>%     
-  ggplot(aes(x = fct_reorder(religion, millions_of_followers), y = millions_of_followers)) +
-    geom_col(fill = "lightblue") + 
-    labs(x = "religion", y = "millions of followers", 
-        caption = "https://en.wikipedia.org/wiki/List_of_religious_populations") + 
-        coord_flip()
+state_summary<-cars_spec%>%
+  group_by(state)%>%
+  nest()
 ```
 
+#### 2a. How many car sales were found per state? This is done using map_int()
+```{r}
+state_count<-state_summary%>%
+  mutate(n_sales=map_int(data,nrow))
+head(state_count)
+```
+
+
+#### 2b. Find the mean price per state using map_dbl.
+```{r}
+state_mean<-state_summary%>%
+  mutate(mean_price=map_dbl(data,
+                            ~.x%>%pull(price)%>%mean())
+         )
+head(state_mean)
+
+```
